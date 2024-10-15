@@ -1,0 +1,129 @@
+- hosts: bot
+  tasks:
+    - name: Клонирование репозитория
+      command: git clone -b ansible https://github.com/FlamesKes/bot.git
+
+    - name: Установка python
+      apt:
+        name:
+        - python3
+        - python3-pip
+        state: present
+      become: yes
+
+    - name: Копирование .env файла
+      copy:
+        src: ./bot.env
+        dest: /home/ansible/bot/bot.env
+        owner: ansible
+        group: ansible
+        mode: '0644'
+
+    - name: Установка зависимостей из requirements.txt
+      command: pip install -r /home/ansible/bot/requirements.txt --break-system-packages
+
+
+    - name: Запуск bot.py в nohup
+      command: nohup python3 /home/ansible/bot/bot.py
+      args:
+        chdir: /home/ansible/bot
+        creates: /tmp/start.lock
+      async: 1
+      poll: 0
+
+- hosts: primary
+  become: True
+  tasks:
+    - name: Установка postgresql
+      apt:
+        name:
+        - postgresql 
+        - postgresql-contrib
+        - python3
+        - python3-psycopg
+        state: present
+      become: yes
+
+    - name: Копирование postgresql.conf
+      copy:
+        src: ./primary/postgresql.conf
+        dest: /etc/postgresql/16/main/postgresql.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Копирование pg_hba.conf
+      copy:
+        src: ./primary/pg_hba.conf
+        dest: /etc/postgresql/16/main/pg_hba.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Копирование postgresql.conf
+      copy:
+        src: ./schema.sql
+        dest: /tmp/schema.sql
+        owner: postgres
+        group: postgres
+        mode: '0777'
+
+    - name: Перезапуск службы postgresql
+      command: sudo systemctl start postgresql
+      
+    - name: Создание бд
+      become: yes
+      become_user: postgres
+      postgresql_db:
+        name: pts
+        state: present
+        login_user: postgres
+
+    - name: Загрузка схемы из файла schema.sql
+      become: yes
+      become_user: postgres
+      command: psql pts -f /tmp/schema.sql
+
+- hosts: replica
+  become: True
+  tasks:
+    - name: Установка postgresql
+      apt:
+        name:
+        - postgresql 
+        - postgresql-contrib
+        - python3
+        - python3-psycopg
+        state: present
+      become: yes
+
+    - name: Копирование postgresql.conf для реплики
+      copy:
+        src: ./repl/postgresql.conf
+        dest: /etc/postgresql/16/main/postgresql.conf
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: Остановка службы postgresql
+      service:
+        name: postgresql
+        state: stopped
+
+    - name: Удаление данных в директории main
+      command: rm -rf /var/lib/postgresql/16/main/
+
+    - name: Выполнение pg_basebackup
+      become: yes
+      become_user: postgres
+      command: pg_basebackup -R -h 192.168.31.60 -U repl_user -D /var/lib/postgresql/16/main -P
+      environment:
+        PGPASSWORD: "1"
+      register: pg_basebackup_result
+      failed_when: pg_basebackup_result.rc != 0
+      changed_when: False
+
+    - name: Запуск службы postgresql после очистки
+      service:
+        name: postgresql
+        state: started
