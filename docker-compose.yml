@@ -11,6 +11,7 @@ x-postgres-common:
 services:
   bot:
     image: bot_image
+    build: ./bot/
     hostname: bot
     environment:
       TOKEN: ${TOKEN}
@@ -44,6 +45,7 @@ services:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     hostname: postgres
     image: db_image
+    build: ./db/
 
   postgres_repl:
     <<: *postgres-common
@@ -68,3 +70,4 @@ services:
       - postgres_primary
     hostname: postgres-repl
     image: db_repl_image
+    build: ./db_repl/
