@@ -1,0 +1,6 @@
+requests
+python-telegram-bot==13.7
+python-dotenv
+psycopg2-binary
+paramiko
+urllib3==1.26.15
